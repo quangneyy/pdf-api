@@ -1,34 +1,32 @@
-from PyPDF2 import PdfReader, PdfWriter
-from PyPDF2.generic import NameObject, ArrayObject
+import fitz
 
-def remove_all_links(input_pdf_path: str, output_pdf_path: str):
-    reader = PdfReader(input_pdf_path)
-    writer = PdfWriter()
+def remove_all_links_and_text(input_pdf_path: str, output_pdf_path: str, texts_to_remove: list[str] = None):
+    doc = fitz.open(input_pdf_path)
 
-    removed_count = 0
+    removed_links = 0
+    removed_texts = 0
 
-    for page in reader.pages:
-        if "/Annots" in page:
-            annots = []
-            for annot in page["/Annots"]: 
-                a = annot.get_object()
-                subtype = a.get("/Subtype")
-                if subtype == "/Link":
-                    action = a.get("/A")
-                    if action is not None:
-                        action_obj = action.get_object() if hasattr(action, "get_object") else action
-                        uri = action_obj.get("/URI")
-                        if uri:  
-                            removed_count += 1
-                            print(f"❌ Removed link: {uri}")
-                            continue
-                annots.append(annot)
+    for page in doc:
+        links = page.get_links()
+        for l in links:
+            uri = l.get("uri", None)
+            if uri:
+                removed_links += 1
+                print(f"❌ Removed link: {uri}")
+                page.delete_link(l)
 
-            page[NameObject("/Annots")] = ArrayObject(annots)
+        if texts_to_remove:
+            for t in texts_to_remove:
+                text_instances = page.search_for(t)
+                for inst in text_instances:
+                    page.add_redact_annot(inst, fill=(1, 1, 1))
+                    removed_texts += 1
+                    print(f"❌ Removed text: {t}")
 
-        writer.add_page(page)
+            page.apply_redactions()
 
-    with open(output_pdf_path, "wb") as f:
-        writer.write(f)
+    doc.save(output_pdf_path)
+    doc.close()
 
-    print(f"✅ Total links removed: {removed_count}")
+    print(f"✅ Total links removed: {removed_links}")
+    print(f"✅ Total texts removed: {removed_texts}")
